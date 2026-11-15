@@ -11,7 +11,7 @@
 локальный JSON-снимок. У проекта **нет зависимостей времени выполнения**, и он
 поддерживает **Python 3.10+**.
 
-## Features
+## Возможности
 
 - **Списки задач** — список, получение, создание, переименование, удаление.
 - **Задачи** — список (с ленивой пагинацией), получение, создание, обновление,
@@ -28,14 +28,14 @@
 - **Оба интерфейса** — типизированная библиотека Python и CLI `gtasks` с
   выводом, разделённым табуляцией, или `--json`.
 
-## Requirements
+## Требования
 
 - Python **3.10 или новее**
 - Только стандартная библиотека — никаких сторонних пакетов времени выполнения
 - Проект Google Cloud с включённым Google Tasks API и OAuth-клиентом типа
   **Desktop app**
 
-## Install
+## Установка
 
 ```bash
 git clone https://github.com/dvarkless/python-google-task-api.git
@@ -56,7 +56,7 @@ pip install .           # regular install
 gtasks --help
 ```
 
-## Google Cloud OAuth setup
+## Настройка OAuth в Google Cloud
 
 1. Откройте [Google Cloud Console](https://console.cloud.google.com/) и создайте
    проект (или выберите существующий).
@@ -88,14 +88,14 @@ gtasks login --client-secret ./client_secret.json
 > Отозвать доступ можно в любой момент на
 > <https://myaccount.google.com/permissions>.
 
-## Authentication
+## Аутентификация
 
 Порядок определения настроек:
 
-| Setting | 1st | 2nd | Fallback |
+| Настройка | 1-й способ | 2-й способ | По умолчанию |
 |---|---|---|---|
-| OAuth client | `--client-secret PATH` | `GTASKS_CLIENT_SECRET` | `./client_secret.json` |
-| Token | `--token PATH` | `GTASKS_TOKEN` | `~/.config/gtasks/token.json` |
+| OAuth-клиент | `--client-secret PATH` | `GTASKS_CLIENT_SECRET` | `./client_secret.json` |
+| Токен | `--token PATH` | `GTASKS_TOKEN` | `~/.config/gtasks/token.json` |
 
 Три равноценных способа аутентификации:
 
@@ -117,7 +117,7 @@ gtasks login
 Токены хранятся в JSON-файле с правами `0600` и автоматически обновляются по
 истечении срока действия.
 
-## Library quickstart
+## Быстрый старт библиотеки
 
 ```python
 from datetime import date
@@ -175,7 +175,7 @@ client.tasklists.delete(work.id)
 объекты `datetime`/`date`, а datetime без часового пояса трактуются как UTC.
 Google хранит даты `due` задач без компонента времени.
 
-## Filtering
+## Фильтрация
 
 Условия `TaskFilter` объединяются по логике **AND** и могут применяться лениво
 через `client.tasks.iterate(..., filter=spec)` или к уже имеющемуся списку с
@@ -216,14 +216,14 @@ children = client.tasks.subtasks("@default", parent_id, include_completed=False)
 - Границы фильтра `datetime`/`date` без часового пояса трактуются как UTC;
   некорректные строки RFC 3339 вызывают `ValueError`.
 
-## CLI usage
+## Использование CLI
 
 Полный список параметров: `gtasks <command> --help`. Глобальные параметры
 `--client-secret` и `--token` должны указываться **до** подкоманды (подкоманда
 `login` также принимает их после себя). Параметр `--json` доступен для `lists`,
 `tasks`, `show`, `create`, `update`, `move`, `subtasks` и `sync`.
 
-### Lists
+### Списки
 
 ```bash
 $ gtasks lists
@@ -242,7 +242,7 @@ $ gtasks lists --json
 ]
 ```
 
-### Tasks
+### Задачи
 
 ```bash
 $ gtasks tasks @default
@@ -268,7 +268,7 @@ $ gtasks tasks @default --json
 Строки задач в человекочитаемом выводе имеют вид
 `id<TAB>status<TAB>due-or-dash<TAB>title`.
 
-### Show
+### Просмотр
 
 ```bash
 $ gtasks show @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
@@ -290,7 +290,7 @@ self_link: https://www.googleapis.com/tasks/v1/lists/@default/tasks/MTU3Mzc4NTY3
 
 `gtasks show ... --json` выводит тот же объект в формате JSON.
 
-### Create / update / delete / clear / move
+### Создание / обновление / удаление / очистка / перемещение
 
 ```bash
 # Create (prints the new task id)
@@ -327,7 +327,7 @@ $ gtasks move @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
 
-### Subtasks
+### Подзадачи
 
 ```bash
 $ gtasks subtasks @default MTU3Mzc4NTY3ODkwMTIzNDU2NzQ
@@ -337,7 +337,7 @@ MTU3Mzc4NTY3ODkwMTIzNDU2NzY	completed	2026-11-14T00:00:00.000Z	Review changelog
 $ gtasks subtasks @default MTU3Mzc4NTY3ODkwMTIzNDU2NzQ --no-completed
 ```
 
-### Sync
+### Синхронизация
 
 ```bash
 # Incremental pull; state defaults to $GTASKS_SYNC_STATE or ~/.cache/gtasks/sync.json
@@ -354,7 +354,7 @@ $ gtasks sync --full
 $ gtasks sync --json
 ```
 
-## Sync behavior and limitations
+## Поведение и ограничения синхронизации
 
 `SyncEngine.pull(state)` выполняет **одностороннюю синхронизацию (pull)** из
 Google Tasks в локальный JSON-файл состояния. Она никогда не записывает данные
@@ -406,7 +406,7 @@ for change in report.changes:
 - Удаления списков задач определяются по отсутствию, поэтому временно невидимый
   список будет помечен как удалённый при следующей синхронизации.
 
-## API limits
+## Ограничения API
 
 - Списки задач: `maxResults` — значение по умолчанию и максимум **1000**.
 - Задачи: `maxResults` — максимум **100** (клиент по умолчанию запрашивает 100
@@ -431,7 +431,7 @@ for change in report.changes:
 - При завершении задачи в клиентах Google она может помечаться как скрытая; при
   полной синхронизации запрашиваются и скрытые задачи, чтобы избежать дубликатов.
 
-## Security
+## Безопасность
 
 - **Никогда не коммитьте** `client_secret*.json`, `token*.json`, `*.token`,
   `.env` и каталог `secret/`. `.gitignore` исключает их — сохраняйте это правило.
@@ -441,6 +441,6 @@ for change in report.changes:
   <https://myaccount.google.com/permissions>, затем удалите файл токена и
   войдите заново.
 
-## License
+## Лицензия
 
 [MIT](LICENSE) © 2026 Amir Suleymanov
