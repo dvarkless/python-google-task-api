@@ -218,3 +218,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# gtasks: OAuth credentials, internal docs and local state — never commit
+# ---------------------------------------------------------------------------
+# OAuth client secrets and access/refresh tokens
+secret/
+credentials.json
+client_secret*.json
+token*.json
+*.token
+.env
+# Internal contract/research/QA documents (README.md is the only committed doc)
+docs/
+# Local tool and agent state
+.mnemon/
+.gtasks/
+# Virtual environments
+.venv/
+.venv-*/
+# Pull-sync state and scratch files
+sync-state*.json
+*.tmp
