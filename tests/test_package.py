@@ -17,7 +17,7 @@ SRC = ROOT / "src" / "gtasks"
 
 class PackageSurfaceTests(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(gtasks.__version__, "0.1.0")
+        self.assertEqual(gtasks.__version__, "0.1.1")
 
     def test_core_public_exports(self):
         expected = [
@@ -44,6 +44,10 @@ class PackageSurfaceTests(unittest.TestCase):
             "UNSET",
             "parse_rfc3339",
             "to_rfc3339",
+            "DEFAULT_CONFIG_DIR",
+            "DEFAULT_CLIENT_SECRET_PATH",
+            "resolve_client_secret_path",
+            "save_client_config",
         ]
         missing = [name for name in expected if not hasattr(gtasks, name)]
         self.assertEqual(missing, [], f"missing public exports: {missing}")
@@ -105,7 +109,7 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_project_metadata(self):
         self.assertEqual(self.project["name"], "gtasks")
-        self.assertEqual(self.project["version"], "0.1.0")
+        self.assertEqual(self.project["version"], "0.1.1")
         self.assertEqual(self.project["requires-python"], ">=3.10")
         self.assertFalse(self.project.get("dependencies"))
 

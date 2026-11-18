@@ -56,6 +56,9 @@ pip install .           # regular install
 gtasks --help
 ```
 
+После выполнения `gtasks login --client-secret <file>` CLI работает из любого
+каталога (конфигурация хранится в `~/.config/gtasks/`).
+
 ## Настройка OAuth в Google Cloud
 
 1. Откройте [Google Cloud Console](https://console.cloud.google.com/) и создайте
@@ -80,7 +83,10 @@ gtasks login --client-secret ./client_secret.json
 
 Команда `login` открывает браузер, ожидает страницу согласия Google, обменивает
 код авторизации (PKCE S256 + state) и сохраняет токен. По завершении выводится
-путь к файлу токена.
+путь к файлу токена. После первого успешного входа конфигурация OAuth-клиента
+копируется в `~/.config/gtasks/client_secret.json` (права `0600`), поэтому
+последующие вызовы `gtasks` работают из любого рабочего каталога вне
+репозитория; для первого входа по-прежнему нужен путь к скачанному JSON клиента.
 
 > Если оставить приложение в статусе **Testing**, Google аннулирует выданные
 > refresh-токены через 7 дней. Опубликуйте приложение (или используйте
@@ -92,10 +98,10 @@ gtasks login --client-secret ./client_secret.json
 
 Порядок определения настроек:
 
-| Настройка | 1-й способ | 2-й способ | По умолчанию |
-|---|---|---|---|
-| OAuth-клиент | `--client-secret PATH` | `GTASKS_CLIENT_SECRET` | `./client_secret.json` |
-| Токен | `--token PATH` | `GTASKS_TOKEN` | `~/.config/gtasks/token.json` |
+| Настройка | 1-й способ | 2-й способ | 3-й способ | Резервный вариант |
+|---|---|---|---|---|
+| OAuth-клиент | `--client-secret PATH` | `GTASKS_CLIENT_SECRET` | `~/.config/gtasks/client_secret.json` (также `client_secret*.json`) | `./client_secret.json` |
+| Токен | `--token PATH` | `GTASKS_TOKEN` | — | `~/.config/gtasks/token.json` |
 
 Три равноценных способа аутентификации:
 
@@ -110,7 +116,7 @@ export GTASKS_TOKEN="$HOME/.config/gtasks/token.json"
 gtasks login
 
 # 3. Default paths
-#    ./client_secret.json  ->  ~/.config/gtasks/token.json
+#    ~/.config/gtasks/client_secret.json  ->  ~/.config/gtasks/token.json
 gtasks login
 ```
 

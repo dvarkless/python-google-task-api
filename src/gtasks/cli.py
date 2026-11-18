@@ -11,7 +11,16 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .auth import DEFAULT_TOKEN_PATH, OAuth2Flow, TokenStore, create_credentials
+from .auth import (
+    DEFAULT_CLIENT_SECRET_PATH,
+    DEFAULT_TOKEN_PATH,
+    OAuth2Flow,
+    TokenStore,
+    create_credentials,
+    load_client_config,
+    resolve_client_secret_path,
+    save_client_config,
+)
 from .client import GoogleTasksClient
 from .errors import GtasksError
 from .filters import TaskFilter
@@ -22,8 +31,8 @@ from .transport import HttpTransport
 
 SYNC_STATE_ENV = "GTASKS_SYNC_STATE"
 CLIENT_SECRET_ENV = "GTASKS_CLIENT_SECRET"
+TOKEN_ENV = "GTASKS_TOKEN"
 DEFAULT_SYNC_STATE_PATH = Path.home() / ".cache" / "gtasks" / "sync.json"
-DEFAULT_CLIENT_SECRET_PATH = Path("client_secret.json")
 
 
 def _add_json_option(parser: argparse.ArgumentParser) -> None:
@@ -198,14 +207,16 @@ def _resolve_client(
 
 
 def _cmd_login(args: argparse.Namespace, client: GoogleTasksClient | None) -> int:
-    client_secret = (
-        getattr(args, "client_secret", None)
-        or os.environ.get(CLIENT_SECRET_ENV)
-        or str(DEFAULT_CLIENT_SECRET_PATH)
+    config_path = resolve_client_secret_path(getattr(args, "client_secret", None))
+    token_path = Path(
+        getattr(args, "token", None)
+        or os.environ.get(TOKEN_ENV)
+        or DEFAULT_TOKEN_PATH
     )
-    token_path = Path(getattr(args, "token", None) or DEFAULT_TOKEN_PATH)
     store = TokenStore(token_path)
-    OAuth2Flow.from_client_secret_file(client_secret, store=store).authorize()
+    client_config = load_client_config(config_path)
+    OAuth2Flow(client_config, store=store).authorize()
+    save_client_config(client_config)
     print(store.path)
     return 0
 

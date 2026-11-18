@@ -7,7 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest import mock
 from urllib.parse import urlsplit, parse_qs
@@ -20,6 +20,8 @@ from gtasks.auth import (
     TokenStore,
     create_credentials,
     load_client_config,
+    resolve_client_secret_path,
+    save_client_config,
 )
 from gtasks.errors import AuthError
 
@@ -81,8 +83,10 @@ class AuthTestCase(unittest.TestCase):
         self.store = TokenStore(self.token_path)
         self.config = dict(INSTALLED)
 
-    def write_client_secret(self, name="client_secret.json", section="installed"):
-        path = self.dir / name
+    def write_client_secret(
+        self, name="client_secret.json", section="installed", directory=None
+    ):
+        path = (directory or self.dir) / name
         path.write_text(json.dumps({section: dict(INSTALLED)}), encoding="utf-8")
         return path
 
@@ -251,19 +255,149 @@ class CreateCredentialsTests(AuthTestCase):
         with self.assertRaises(AuthError):
             create_credentials(self.dir / "does-not-exist.json", self.token_path)
 
-    def test_defaults_client_secret_in_cwd_and_token_path(self):
-        self.write_client_secret()
+    def test_defaults_client_secret_in_config_dir_and_default_token_path(self):
+        config_dir = self.dir / "config"
+        config_dir.mkdir()
+        self.write_client_secret(directory=config_dir)
         token_path = self.dir / "default-token.json"
-        cwd = os.getcwd()
+        TokenStore(token_path).save(Token("stored-token"))
         with clean_env(), mock.patch.object(
-            auth_module, "DEFAULT_TOKEN_PATH", token_path
-        ):
-            os.chdir(self.dir)
-            try:
-                credentials = create_credentials()
-            finally:
-                os.chdir(cwd)
+            auth_module, "DEFAULT_CONFIG_DIR", config_dir
+        ), mock.patch.object(
+            auth_module, "DEFAULT_CLIENT_SECRET_PATH", config_dir / "client_secret.json"
+        ), mock.patch.object(auth_module, "DEFAULT_TOKEN_PATH", token_path):
+            credentials = create_credentials()
         self.assertIsInstance(credentials, Credentials)
+        self.assertEqual(credentials.token.access_token, "stored-token")
+
+    def test_defaults_client_secret_in_cwd_fallback(self):
+        config_dir = self.dir / "empty-config"
+        config_dir.mkdir()
+        self.write_client_secret(directory=self.dir)
+        token_path = self.dir / "cwd-token.json"
+        with clean_env(), mock.patch.object(
+            auth_module, "DEFAULT_CONFIG_DIR", config_dir
+        ), mock.patch.object(
+            auth_module, "DEFAULT_CLIENT_SECRET_PATH", config_dir / "client_secret.json"
+        ), mock.patch.object(
+            auth_module, "DEFAULT_TOKEN_PATH", token_path
+        ), mock.patch("pathlib.Path.cwd", return_value=self.dir):
+            credentials = create_credentials()
+        self.assertIsInstance(credentials, Credentials)
+        self.assertIsNone(credentials.token)
+
+
+_UNSET = object()
+
+
+class ClientSecretResolutionTests(AuthTestCase):
+    def setUp(self):
+        super().setUp()
+        self.config_dir = self.dir / "config"
+        self.cwd_dir = self.dir / "cwd"
+        self.config_dir.mkdir()
+        self.cwd_dir.mkdir()
+
+    def secret(self, directory, name="client_secret.json"):
+        path = directory / name
+        path.write_text(json.dumps({"installed": dict(INSTALLED)}), encoding="utf-8")
+        return path
+
+    @contextmanager
+    def resolver(self, *, config_dir=None, cwd=None, env_secret=_UNSET):
+        config_dir = self.config_dir if config_dir is None else config_dir
+        cwd = self.cwd_dir if cwd is None else cwd
+        with ExitStack() as stack:
+            stack.enter_context(
+                mock.patch.object(auth_module, "DEFAULT_CONFIG_DIR", config_dir)
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    auth_module, "DEFAULT_CLIENT_SECRET_PATH", config_dir / "client_secret.json"
+                )
+            )
+            stack.enter_context(mock.patch("pathlib.Path.cwd", return_value=cwd))
+            stack.enter_context(clean_env())
+            if env_secret is not _UNSET:
+                os.environ["GTASKS_CLIENT_SECRET"] = str(env_secret)
+            yield
+
+    def test_explicit_path_beats_env_and_config_dir(self):
+        explicit = self.secret(self.dir, "explicit.json")
+        env_secret = self.secret(self.dir, "env.json")
+        self.secret(self.config_dir)
+        with self.resolver(env_secret=env_secret):
+            self.assertEqual(resolve_client_secret_path(explicit), explicit)
+
+    def test_env_beats_config_dir(self):
+        env_secret = self.secret(self.dir, "env.json")
+        self.secret(self.config_dir)
+        with self.resolver(env_secret=env_secret):
+            self.assertEqual(resolve_client_secret_path(), env_secret)
+
+    def test_config_dir_beats_cwd(self):
+        config = self.secret(self.config_dir)
+        self.secret(self.cwd_dir)
+        with self.resolver():
+            self.assertEqual(resolve_client_secret_path(), config)
+
+    def test_out_of_repo_resolution_uses_config_dir(self):
+        config = self.secret(self.config_dir)
+        with self.resolver():
+            self.assertEqual(list(self.cwd_dir.iterdir()), [])
+            self.assertEqual(resolve_client_secret_path(), config)
+
+    def test_cwd_fallback_when_config_dir_empty(self):
+        cwd_secret = self.secret(self.cwd_dir)
+        with self.resolver():
+            self.assertEqual(resolve_client_secret_path(), cwd_secret)
+
+    def test_config_dir_glob_fallback(self):
+        config_glob = self.secret(self.config_dir, "client_secret_123.json")
+        self.secret(self.cwd_dir)
+        with self.resolver():
+            self.assertEqual(resolve_client_secret_path(), config_glob)
+
+    def test_cwd_glob_fallback(self):
+        cwd_glob = self.secret(self.cwd_dir, "client_secret_abc.json")
+        with self.resolver():
+            self.assertEqual(resolve_client_secret_path(), cwd_glob)
+
+    def test_explicit_missing_raises_auth_error(self):
+        with self.resolver():
+            with self.assertRaises(AuthError):
+                resolve_client_secret_path(self.dir / "nope.json")
+
+    def test_no_candidate_raises_helpful_auth_error(self):
+        with self.resolver():
+            with self.assertRaises(AuthError) as ctx:
+                resolve_client_secret_path()
+        self.assertIn("gtasks login --client-secret", str(ctx.exception))
+
+
+class SaveClientConfigTests(AuthTestCase):
+    def test_writes_flat_json_atomically_with_0600(self):
+        target = self.dir / "nested" / "client_secret.json"
+        saved = save_client_config(dict(INSTALLED), target)
+        self.assertEqual(saved, target)
+        self.assertTrue(target.exists())
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), INSTALLED)
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+        self.assertEqual(
+            sorted(item.name for item in target.parent.iterdir()),
+            ["client_secret.json"],
+        )
+
+    def test_roundtrip_with_load_client_config(self):
+        target = self.dir / "client_secret.json"
+        save_client_config(dict(INSTALLED), target)
+        self.assertEqual(load_client_config(target), INSTALLED)
+
+    def test_overwrites_existing_file(self):
+        target = self.dir / "client_secret.json"
+        save_client_config({"client_id": "old"}, target)
+        save_client_config({"client_id": "new"}, target)
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"client_id": "new"})
 
 
 class OAuthFlowConstructionTests(AuthTestCase):

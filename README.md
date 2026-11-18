@@ -51,6 +51,9 @@ line tool is also runnable as `python -m gtasks`.
 gtasks --help
 ```
 
+After `gtasks login --client-secret <file>`, the CLI works from any directory
+(config stored in `~/.config/gtasks/`).
+
 ## Google Cloud OAuth setup
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/) and
@@ -75,7 +78,10 @@ gtasks login --client-secret ./client_secret.json
 
 `login` opens your browser, waits for the Google consent page, exchanges the
 authorization code (PKCE S256 + state), and saves the token. It prints the token
-path when finished.
+path when finished. After the first successful login the client configuration is
+copied to `~/.config/gtasks/client_secret.json` (mode `0600`), so later `gtasks`
+calls work from any working directory without the repository; the first login
+still needs the path to the downloaded client-secret JSON.
 
 > Apps left in **Testing** status issue refresh tokens that Google expires after
 > 7 days. Publish the app (or use an **Internal** app in a Workspace) if you want
@@ -86,10 +92,10 @@ path when finished.
 
 Configuration resolves in this order:
 
-| Setting | 1st | 2nd | Fallback |
-|---|---|---|---|
-| OAuth client | `--client-secret PATH` | `GTASKS_CLIENT_SECRET` | `./client_secret.json` |
-| Token | `--token PATH` | `GTASKS_TOKEN` | `~/.config/gtasks/token.json` |
+| Setting | 1st | 2nd | 3rd | Fallback |
+|---|---|---|---|---|
+| OAuth client | `--client-secret PATH` | `GTASKS_CLIENT_SECRET` | `~/.config/gtasks/client_secret.json` (also `client_secret*.json`) | `./client_secret.json` |
+| Token | `--token PATH` | `GTASKS_TOKEN` | — | `~/.config/gtasks/token.json` |
 
 Three equivalent ways to authenticate:
 
@@ -104,7 +110,7 @@ export GTASKS_TOKEN="$HOME/.config/gtasks/token.json"
 gtasks login
 
 # 3. Default paths
-#    ./client_secret.json  ->  ~/.config/gtasks/token.json
+#    ~/.config/gtasks/client_secret.json  ->  ~/.config/gtasks/token.json
 gtasks login
 ```
 

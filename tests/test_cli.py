@@ -9,7 +9,7 @@ from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from gtasks.auth import Token
+from gtasks.auth import Token, TokenStore
 from gtasks.cli import main, run
 from gtasks.errors import ApiError, GtasksError
 from gtasks.models import Task, TaskList
@@ -392,27 +392,95 @@ class SyncCommandTests(TempDirMixin):
 
 
 class LoginCommandTests(TempDirMixin):
-    def test_login_runs_flow_and_prints_token_path(self):
+    def setup_login(self, config=None):
+        config = config or {"client_id": "cid", "client_secret": "secret"}
+        flow = mock.MagicMock()
+        flow.authorize.return_value = Token("access-token", refresh_token="refresh")
+        handle = mock.Mock()
+        handle.config = config
+        handle.flow = flow
+        handle.flow_cls = mock.MagicMock(return_value=flow)
+        handle.load = mock.MagicMock(return_value=config)
+        handle.save = mock.MagicMock()
+        handle.resolve = mock.MagicMock()
+        return handle
+
+    @contextmanager
+    def patched_login(self, handle, **environment):
+        with patch_attr(
+            ["gtasks.cli", "gtasks.auth"], "OAuth2Flow", handle.flow_cls
+        ), patch_attr(
+            ["gtasks.cli", "gtasks.auth"], "load_client_config", handle.load
+        ), patch_attr(
+            ["gtasks.cli", "gtasks.auth"], "resolve_client_secret_path", handle.resolve
+        ), patch_attr(
+            ["gtasks.cli", "gtasks.auth"], "save_client_config", handle.save
+        ), env(**environment):
+            yield
+
+    def test_login_resolves_explicit_secret_and_saves_config(self):
         secret = self.dir / "client_secret.json"
         secret.write_text(json.dumps({"installed": {"client_id": "cid"}}), encoding="utf-8")
         token_path = self.dir / "token.json"
-        token = Token("access-token", refresh_token="refresh")
-        fake_flow = mock.MagicMock()
-        fake_flow.authorize.return_value = token
-        fake_flow.store.path = token_path
-        fake_cls = mock.MagicMock()
-        fake_cls.return_value = fake_flow
-        fake_cls.from_client_secret_file.return_value = fake_flow
-        with patch_attr(
-            ["gtasks.cli", "gtasks.auth"], "OAuth2Flow", fake_cls
-        ):
+        handle = self.setup_login()
+        handle.resolve.return_value = secret
+        with self.patched_login(handle):
             code, out, err = invoke(
                 ["login", "--client-secret", str(secret), "--token", str(token_path)]
             )
         self.assertEqual(code, 0)
         self.assertEqual(err, "")
         self.assertIn(str(token_path), out)
-        self.assertTrue(fake_flow.authorize.called)
+        handle.resolve.assert_called_once_with(str(secret))
+        handle.load.assert_called_once_with(secret)
+        handle.flow_cls.assert_called_once()
+        args, kwargs = handle.flow_cls.call_args
+        self.assertEqual(args[0], handle.config)
+        store = kwargs.get("store")
+        self.assertIsInstance(store, TokenStore)
+        self.assertEqual(store.path, token_path)
+        handle.flow.authorize.assert_called_once_with()
+        handle.save.assert_called_once_with(handle.config)
+
+    def test_login_without_client_secret_uses_resolver_then_saves(self):
+        resolved = self.dir / "config" / "client_secret.json"
+        token_path = self.dir / "token.json"
+        handle = self.setup_login()
+        handle.resolve.return_value = resolved
+        with self.patched_login(handle):
+            code, out, err = invoke(["login", "--token", str(token_path)])
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertIn(str(token_path), out)
+        handle.resolve.assert_called_once_with(None)
+        handle.load.assert_called_once_with(resolved)
+        handle.save.assert_called_once_with(handle.config)
+
+    def test_login_default_token_path_is_config_dir_token(self):
+        secret = self.dir / "client_secret.json"
+        secret.write_text(json.dumps({"installed": {"client_id": "cid"}}), encoding="utf-8")
+        default_token = self.dir / "config" / "token.json"
+        handle = self.setup_login()
+        handle.resolve.return_value = secret
+        with self.patched_login(handle), patch_attr(
+            ["gtasks.cli", "gtasks.auth"], "DEFAULT_TOKEN_PATH", default_token
+        ):
+            code, out, err = invoke(["login", "--client-secret", str(secret)])
+        self.assertEqual(code, 0)
+        self.assertIn(str(default_token), out)
+        self.assertEqual(handle.flow_cls.call_args.kwargs["store"].path, default_token)
+
+    def test_login_token_path_from_env(self):
+        secret = self.dir / "client_secret.json"
+        secret.write_text(json.dumps({"installed": {"client_id": "cid"}}), encoding="utf-8")
+        env_token = self.dir / "env-token.json"
+        handle = self.setup_login()
+        handle.resolve.return_value = secret
+        with self.patched_login(handle, GTASKS_TOKEN=str(env_token)):
+            code, out, err = invoke(["login", "--client-secret", str(secret)])
+        self.assertEqual(code, 0)
+        self.assertIn(str(env_token), out)
+        self.assertEqual(handle.flow_cls.call_args.kwargs["store"].path, env_token)
 
 
 class ExitCodeTests(TempDirMixin):

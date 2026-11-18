@@ -6,6 +6,8 @@ import importlib
 from typing import Any
 
 from .auth import (
+    DEFAULT_CLIENT_SECRET_PATH,
+    DEFAULT_CONFIG_DIR,
     DEFAULT_TOKEN_PATH,
     SCOPES,
     Credentials,
@@ -14,17 +16,21 @@ from .auth import (
     TokenStore,
     create_credentials,
     load_client_config,
+    resolve_client_secret_path,
+    save_client_config,
 )
 from .errors import ApiError, AuthError, GtasksError, NotFoundError
 from .models import Task, TaskList, parse_rfc3339, to_rfc3339
 from .transport import HttpTransport
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "ApiError",
     "AuthError",
     "Credentials",
+    "DEFAULT_CLIENT_SECRET_PATH",
+    "DEFAULT_CONFIG_DIR",
     "DEFAULT_TOKEN_PATH",
     "GtasksError",
     "GoogleTasksClient",
@@ -51,6 +57,8 @@ __all__ = [
     "filter_tasks",
     "load_client_config",
     "parse_rfc3339",
+    "resolve_client_secret_path",
+    "save_client_config",
     "to_rfc3339",
 ]
 

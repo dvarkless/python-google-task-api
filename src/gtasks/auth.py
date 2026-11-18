@@ -23,7 +23,9 @@ from typing import Any
 from .errors import AuthError
 
 SCOPES = ("https://www.googleapis.com/auth/tasks",)
-DEFAULT_TOKEN_PATH = Path.home() / ".config" / "gtasks" / "token.json"
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "gtasks"
+DEFAULT_CLIENT_SECRET_PATH = DEFAULT_CONFIG_DIR / "client_secret.json"
+DEFAULT_TOKEN_PATH = DEFAULT_CONFIG_DIR / "token.json"
 
 _DEFAULT_AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 _DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -286,20 +288,77 @@ def load_client_config(path: str | Path) -> dict[str, Any]:
     return dict(data)
 
 
+def resolve_client_secret_path(
+    client_secret_path: str | Path | None = None,
+) -> Path:
+    """Locate an OAuth client configuration, preferring the user config directory."""
+    if client_secret_path is not None:
+        return _existing_secret(Path(client_secret_path).expanduser())
+    from_env = os.environ.get(_ENV_CLIENT_SECRET)
+    if from_env:
+        return _existing_secret(Path(from_env).expanduser())
+    candidates = [
+        DEFAULT_CLIENT_SECRET_PATH,
+        *sorted(DEFAULT_CONFIG_DIR.glob("client_secret*.json")),
+        Path.cwd() / "client_secret.json",
+        *sorted(Path.cwd().glob("client_secret*.json")),
+    ]
+    tried: list[Path] = []
+    for candidate in candidates:
+        if candidate in tried:
+            continue
+        tried.append(candidate)
+        if candidate.is_file():
+            return candidate
+    looked_in = ", ".join(str(path) for path in tried)
+    raise AuthError(
+        "client secret file not found; run 'gtasks login --client-secret PATH' "
+        f"or set {_ENV_CLIENT_SECRET} (looked in: {looked_in})"
+    )
+
+
+def save_client_config(
+    client_config: Mapping[str, Any],
+    path: str | Path = DEFAULT_CLIENT_SECRET_PATH,
+) -> Path:
+    """Persist the OAuth client configuration for use outside the source directory."""
+    target = Path(path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(dict(client_config), handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_name, 0o600)
+        os.replace(temporary_name, target)
+    except BaseException:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+        raise
+    return target
+
+
 def create_credentials(
     client_secret_path: str | Path | None = None,
     token_path: str | Path | None = None,
 ) -> Credentials:
     """Build credentials from arguments, environment variables or default paths."""
-    secret_path = _resolve_path(
-        client_secret_path, _ENV_CLIENT_SECRET, Path.cwd() / "client_secret.json"
-    )
-    if not secret_path.is_file():
-        raise AuthError(f"client secret file not found: {secret_path}")
+    secret_path = resolve_client_secret_path(client_secret_path)
     resolved_token_path = _resolve_path(
         token_path, _ENV_TOKEN, DEFAULT_TOKEN_PATH
     )
     return Credentials(load_client_config(secret_path), TokenStore(resolved_token_path))
+
+
+def _existing_secret(path: Path) -> Path:
+    if not path.is_file():
+        raise AuthError(f"client secret file not found: {path}")
+    return path
 
 
 def _resolve_path(

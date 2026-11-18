@@ -51,7 +51,7 @@ class HttpTransport:
         headers = {
             "Authorization": f"Bearer {self.credentials.access_token()}",
             "Accept": "application/json",
-            "User-Agent": "gtasks/0.1.0",
+            "User-Agent": "gtasks/0.1.1",
         }
         if payload is not None:
             headers["Content-Type"] = "application/json"
