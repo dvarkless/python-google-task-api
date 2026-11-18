@@ -218,8 +218,9 @@ Filter semantics:
 
 Run `gtasks <command> --help` for the full option list. Global `--client-secret`
 and `--token` options must appear **before** the subcommand (the `login`
-subcommand also accepts them itself). `--json` is available on `lists`, `tasks`,
-`show`, `create`, `update`, `move`, `subtasks` and `sync`.
+subcommand also accepts them itself). `--json` is available on `lists`,
+`list-create`, `list-update`, `tasks`, `show`, `create`, `update`, `move`,
+`subtasks` and `sync`.
 
 ### Lists
 
@@ -227,6 +228,22 @@ subcommand also accepts them itself). `--json` is available on `lists`, `tasks`,
 $ gtasks lists
 MDEyMzQ1Njc4OTAxMjM0NTY3ODkw	My Tasks
 MTU3Mzc4NTY3ODkwMTIzNDU2Nw	Work
+
+# Exact, case-sensitive title lookup
+$ gtasks lists --title "Work"
+MTU3Mzc4NTY3ODkwMTIzNDU2Nw	Work
+
+# Create a list (prints the new id)
+$ gtasks list-create "Work"
+MTU3Mzc4NTY3ODkwMTIzNDU2NzA
+
+# Rename a list (prints its id)
+$ gtasks list-update MTU3Mzc4NTY3ODkwMTIzNDU2NzA "Work 2026"
+MTU3Mzc4NTY3ODkwMTIzNDU2NzA
+
+# Delete a list
+$ gtasks list-delete MTU3Mzc4NTY3ODkwMTIzNDU2NzA
+deleted MTU3Mzc4NTY3ODkwMTIzNDU2NzA
 
 $ gtasks lists --json
 [
@@ -239,6 +256,9 @@ $ gtasks lists --json
   }
 ]
 ```
+
+`lists --title` compares the title exactly and is case-sensitive. `list-create`
+and `list-update` also support `--json`.
 
 ### Tasks
 
@@ -307,6 +327,14 @@ MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 # Mark complete / incomplete
 $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --status completed
 
+# Mark complete with an explicit completion time (implies --status completed)
+$ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --completed 2025-01-02
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+# RFC 3339 completion times are normalized to UTC and preserved
+$ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --completed 2025-01-02T10:30:00+03:00
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
 $ gtasks delete @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 deleted MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
@@ -323,6 +351,11 @@ $ gtasks move @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
       --parent MTU3Mzc4NTY3ODkwMTIzNDU2NzQ --previous MTU3Mzc4NTY3ODkwMTIzNDU2NzU
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
+
+Both `--due` and `--completed` accept `YYYY-MM-DD` or RFC 3339 timestamps;
+date-only values become midnight UTC. `--completed` implies `--status completed`
+and preserves the supplied completion time; pairing it with a non-completed
+`--status` is an error (`--completed requires --status completed`).
 
 ### Subtasks
 
@@ -419,6 +452,10 @@ API notes worth knowing:
   alone would leave a stale completion timestamp.
 - Completing a task in first-party clients may mark it hidden; full sync
   pulls request hidden tasks to avoid duplicates.
+- Google Tasks has no *cancelled* state: to represent a cancellation, delete the
+  task or encode it in `notes`/`title` (a caller-side convention).
+- There is no bulk endpoint: each task or list operation is one HTTP request, and
+  sync is a one-way pull (no push, upsert or conflict resolution).
 
 ## Security
 

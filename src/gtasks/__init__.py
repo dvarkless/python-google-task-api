@@ -23,7 +23,7 @@ from .errors import ApiError, AuthError, GtasksError, NotFoundError
 from .models import Task, TaskList, parse_rfc3339, to_rfc3339
 from .transport import HttpTransport
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "ApiError",

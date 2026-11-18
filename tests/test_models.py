@@ -52,6 +52,10 @@ class ToRfc3339Tests(unittest.TestCase):
         value = "2024-01-02T03:04:05Z"
         self.assertEqual(to_rfc3339(value), value)
 
+    def test_date_only_string_becomes_midnight_utc(self):
+        self.assertEqual(to_rfc3339("2026-12-01"), "2026-12-01T00:00:00.000Z")
+        self.assertEqual(to_rfc3339("1999-01-31"), "1999-01-31T00:00:00.000Z")
+
     def test_fractional_milliseconds(self):
         self.assertEqual(
             to_rfc3339(datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=UTC)),

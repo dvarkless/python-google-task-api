@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -12,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from .auth import (
-    DEFAULT_CLIENT_SECRET_PATH,
     DEFAULT_TOKEN_PATH,
     OAuth2Flow,
     TokenStore,
@@ -24,7 +24,7 @@ from .auth import (
 from .client import GoogleTasksClient
 from .errors import GtasksError
 from .filters import TaskFilter
-from .models import Task
+from .models import Task, parse_rfc3339, to_rfc3339
 from .sync import SyncEngine, SyncReport, SyncState
 from .tasks import UNSET
 from .transport import HttpTransport
@@ -57,8 +57,29 @@ def _build_parser() -> argparse.ArgumentParser:
     login.set_defaults(handler=_cmd_login)
 
     lists = commands.add_parser("lists", help="list task lists")
+    lists.add_argument(
+        "--title",
+        default=None,
+        metavar="TITLE",
+        help="only lists whose title matches exactly (case-sensitive)",
+    )
     _add_json_option(lists)
     lists.set_defaults(handler=_cmd_lists)
+
+    list_create = commands.add_parser("list-create", help="create a task list")
+    list_create.add_argument("title", metavar="TITLE")
+    _add_json_option(list_create)
+    list_create.set_defaults(handler=_cmd_list_create)
+
+    list_update = commands.add_parser("list-update", help="rename a task list")
+    list_update.add_argument("tasklist", metavar="TASKLIST")
+    list_update.add_argument("title", metavar="TITLE")
+    _add_json_option(list_update)
+    list_update.set_defaults(handler=_cmd_list_update)
+
+    list_delete = commands.add_parser("list-delete", help="delete a task list")
+    list_delete.add_argument("tasklist", metavar="TASKLIST")
+    list_delete.set_defaults(handler=_cmd_list_delete)
 
     tasks = commands.add_parser("tasks", help="list tasks in a task list")
     tasks.add_argument("tasklist", metavar="TASKLIST")
@@ -96,6 +117,12 @@ def _build_parser() -> argparse.ArgumentParser:
     due_group.add_argument("--due", default=UNSET)
     due_group.add_argument("--clear-due", action="store_true", dest="clear_due")
     update.add_argument("--status", default=UNSET)
+    update.add_argument(
+        "--completed",
+        default=UNSET,
+        metavar="TIMESTAMP",
+        help="completion time (RFC 3339 or YYYY-MM-DD); implies --status completed",
+    )
     _add_json_option(update)
     update.set_defaults(handler=_cmd_update)
 
@@ -230,11 +257,37 @@ def _cmd_lists(args: argparse.Namespace, client: GoogleTasksClient) -> int:
         page_token = page.next_page_token
         if not page_token:
             break
+    if args.title is not None:
+        tasklists = [tasklist for tasklist in tasklists if tasklist.title == args.title]
     if args.as_json:
         _print_json([asdict(tasklist) for tasklist in tasklists])
     else:
         for tasklist in tasklists:
             print(f"{tasklist.id}\t{tasklist.title}")
+    return 0
+
+
+def _cmd_list_create(args: argparse.Namespace, client: GoogleTasksClient) -> int:
+    tasklist = client.tasklists.create(args.title)
+    if args.as_json:
+        _print_json(asdict(tasklist))
+    else:
+        print(tasklist.id)
+    return 0
+
+
+def _cmd_list_update(args: argparse.Namespace, client: GoogleTasksClient) -> int:
+    tasklist = client.tasklists.update(args.tasklist, args.title)
+    if args.as_json:
+        _print_json(asdict(tasklist))
+    else:
+        print(tasklist.id)
+    return 0
+
+
+def _cmd_list_delete(args: argparse.Namespace, client: GoogleTasksClient) -> int:
+    client.tasklists.delete(args.tasklist)
+    print(f"deleted {args.tasklist}")
     return 0
 
 
@@ -277,6 +330,17 @@ def _cmd_create(args: argparse.Namespace, client: GoogleTasksClient) -> int:
     return 0
 
 
+def _completion_timestamp(value: str) -> str:
+    parsed = parse_rfc3339(value)
+    if parsed is None and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        parsed = parse_rfc3339(f"{value}T00:00:00")
+    if parsed is None:
+        raise GtasksError(
+            f"invalid completion timestamp (expected RFC 3339 or YYYY-MM-DD): {value}"
+        )
+    return to_rfc3339(parsed)
+
+
 def _cmd_update(args: argparse.Namespace, client: GoogleTasksClient) -> int:
     changes: dict[str, Any] = {}
     if args.title is not UNSET:
@@ -289,6 +353,11 @@ def _cmd_update(args: argparse.Namespace, client: GoogleTasksClient) -> int:
         changes["due"] = args.due
     if args.status is not UNSET:
         changes["status"] = args.status
+    if args.completed is not UNSET:
+        if args.status is not UNSET and args.status != "completed":
+            raise GtasksError("--completed requires --status completed")
+        changes["completed"] = _completion_timestamp(args.completed)
+        changes["status"] = "completed"
     task = client.tasks.update(args.tasklist, args.task, **changes)
     if args.as_json:
         _print_json(asdict(task))

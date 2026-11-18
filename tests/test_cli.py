@@ -11,6 +11,7 @@ from unittest import mock
 
 from gtasks.auth import Token, TokenStore
 from gtasks.cli import main, run
+from gtasks.client import GoogleTasksClient
 from gtasks.errors import ApiError, GtasksError
 from gtasks.models import Task, TaskList
 from gtasks.sync import SyncChange, SyncReport, SyncState
@@ -18,6 +19,7 @@ from gtasks.tasks import UNSET
 
 from tests.support import (
     FakeClient,
+    FakeTransport,
     as_datetime,
     json_items,
     last_call,
@@ -79,6 +81,35 @@ class ListsCommandTests(TempDirMixin):
         self.assertEqual([item["id"] for item in json_items(payload)], ["l1"])
         self.assertEqual(json_items(payload)[0]["title"], "One")
 
+    def test_lists_title_exact_filter(self):
+        client = FakeClient(
+            tasklists=[
+                TaskList("l1", "Groceries"),
+                TaskList("l2", "groceries"),
+                TaskList("l3", "Work"),
+            ]
+        )
+        code, out, err = invoke(["lists", "--title", "Groceries"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "l1\tGroceries\n")
+        self.assertEqual(err, "")
+
+    def test_lists_title_no_match_returns_empty(self):
+        client = FakeClient(tasklists=[TaskList("l1", "Groceries")])
+        code, out, err = invoke(["lists", "--title", "Missing"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_lists_title_json_filtered(self):
+        client = FakeClient(
+            tasklists=[TaskList("l1", "Groceries"), TaskList("l2", "Work")]
+        )
+        code, out, _ = invoke(["lists", "--title", "Work", "--json"], client)
+        self.assertEqual(code, 0)
+        payload = json_items(json.loads(out))
+        self.assertEqual([item["id"] for item in payload], ["l2"])
+
     def test_lists_error_exit_code(self):
         client = FakeClient()
 
@@ -91,6 +122,51 @@ class ListsCommandTests(TempDirMixin):
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
         self.assertIn("error: HTTP 404: No such list", err)
+
+
+class TaskListCommandsTests(TempDirMixin):
+    def test_list_create_prints_id(self):
+        client = FakeClient()
+        code, out, err = invoke(["list-create", "Groceries"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "new-list")
+        self.assertEqual(err, "")
+        _, args, _ = last_call(client, "tasklists.create")
+        self.assertEqual(args, ("Groceries",))
+
+    def test_list_create_json(self):
+        client = FakeClient()
+        code, out, err = invoke(["list-create", "Groceries", "--json"], client)
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["id"], "new-list")
+        self.assertEqual(payload["title"], "Groceries")
+
+    def test_list_update_prints_id(self):
+        client = FakeClient()
+        code, out, err = invoke(["list-update", "l1", "Renamed"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "l1")
+        self.assertEqual(err, "")
+        _, args, _ = last_call(client, "tasklists.update")
+        self.assertEqual(args, ("l1", "Renamed"))
+
+    def test_list_update_json(self):
+        client = FakeClient()
+        code, out, _ = invoke(["list-update", "l1", "Renamed", "--json"], client)
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["id"], "l1")
+        self.assertEqual(payload["title"], "Renamed")
+
+    def test_list_delete_prints_deleted(self):
+        client = FakeClient()
+        code, out, err = invoke(["list-delete", "l1"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "deleted l1")
+        self.assertEqual(err, "")
+        _, args, _ = last_call(client, "tasklists.delete")
+        self.assertEqual(args, ("l1",))
 
 
 class TasksCommandTests(TempDirMixin):
@@ -213,6 +289,17 @@ class CreateCommandTests(TempDirMixin):
         self.assertEqual(out.strip(), "new-task")
         self.assertEqual(find_kwargs(client, "tasks.create")["title"], "New")
 
+    def test_create_due_date_only_normalized(self):
+        transport = FakeTransport([{"id": "t1", "title": "T"}])
+        client = GoogleTasksClient(transport)
+        code, out, err = invoke(
+            ["create", "L1", "--title", "T", "--due", "2026-12-01"], client
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out.strip(), "t1")
+        self.assertEqual(transport.last.body["due"], "2026-12-01T00:00:00.000Z")
+
     def test_create_with_notes_due_parent(self):
         client = FakeClient()
         code, out, _ = invoke(
@@ -268,6 +355,75 @@ class UpdateCommandTests(TempDirMixin):
         client = FakeClient(tasks=[Task("t1", "First")])
         invoke(["update", "L1", "t1", "--status", "completed"], client)
         self.assertEqual(find_kwargs(client, "tasks.update")["status"], "completed")
+
+    def test_update_completed_date_only_implies_completed_status(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, out, err = invoke(
+            ["update", "L1", "t1", "--completed", "2025-01-02"], client
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "t1")
+        self.assertEqual(err, "")
+        kwargs = find_kwargs(client, "tasks.update")
+        self.assertEqual(kwargs["completed"], "2025-01-02T00:00:00.000Z")
+        self.assertEqual(kwargs["status"], "completed")
+
+    def test_update_completed_rfc3339_normalized(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        invoke(
+            ["update", "L1", "t1", "--completed", "2024-03-04T05:06:07Z"], client
+        )
+        kwargs = find_kwargs(client, "tasks.update")
+        self.assertEqual(kwargs["completed"], "2024-03-04T05:06:07.000Z")
+        self.assertEqual(kwargs["status"], "completed")
+
+    def test_update_completed_with_non_completed_status_errors(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, out, err = invoke(
+            [
+                "update",
+                "L1",
+                "t1",
+                "--completed",
+                "2025-01-02",
+                "--status",
+                "needsAction",
+            ],
+            client,
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("--completed requires --status completed", err)
+        self.assertEqual([call for call in client.calls if call[0] == "tasks.update"], [])
+
+    def test_update_completed_invalid_timestamp_errors(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, out, err = invoke(
+            ["update", "L1", "t1", "--completed", "not-a-date"], client
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("invalid completion timestamp", err)
+        self.assertEqual([call for call in client.calls if call[0] == "tasks.update"], [])
+
+    def test_update_without_completed_does_not_set_status(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, _, _ = invoke(["update", "L1", "t1", "--title", "New"], client)
+        self.assertEqual(code, 0)
+        kwargs = find_kwargs(client, "tasks.update")
+        self.assertNotIn("status", kwargs)
+        self.assertNotIn("completed", kwargs)
+
+    def test_update_due_date_only_normalized(self):
+        transport = FakeTransport([{"id": "t1"}])
+        client = GoogleTasksClient(transport)
+        code, out, err = invoke(
+            ["update", "L1", "t1", "--due", "2026-12-01"], client
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out.strip(), "t1")
+        self.assertEqual(transport.last.body["due"], "2026-12-01T00:00:00.000Z")
 
     def test_update_json(self):
         client = FakeClient(tasks=[Task("t1", "First")])
@@ -517,6 +673,22 @@ class ExitCodeTests(TempDirMixin):
         code, out, _ = invoke(["tasks", "--help"], FakeClient())
         self.assertEqual(code, 0)
         self.assertIn("tasklist", out.lower())
+
+    def test_help_lists_new_tasklist_subcommands(self):
+        code, out, _ = invoke(["--help"], FakeClient())
+        self.assertEqual(code, 0)
+        for command in ("list-create", "list-update", "list-delete"):
+            self.assertIn(command, out)
+
+    def test_lists_help_includes_title(self):
+        code, out, _ = invoke(["lists", "--help"], FakeClient())
+        self.assertEqual(code, 0)
+        self.assertIn("--title", out)
+
+    def test_update_help_includes_completed(self):
+        code, out, _ = invoke(["update", "--help"], FakeClient())
+        self.assertEqual(code, 0)
+        self.assertIn("--completed", out)
 
     def test_unknown_command_exits_two(self):
         code, _, _ = invoke(["bogus"], FakeClient())

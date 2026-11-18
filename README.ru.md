@@ -227,7 +227,8 @@ children = client.tasks.subtasks("@default", parent_id, include_completed=False)
 Полный список параметров: `gtasks <command> --help`. Глобальные параметры
 `--client-secret` и `--token` должны указываться **до** подкоманды (подкоманда
 `login` также принимает их после себя). Параметр `--json` доступен для `lists`,
-`tasks`, `show`, `create`, `update`, `move`, `subtasks` и `sync`.
+`list-create`, `list-update`, `tasks`, `show`, `create`, `update`, `move`,
+`subtasks` и `sync`.
 
 ### Списки
 
@@ -235,6 +236,22 @@ children = client.tasks.subtasks("@default", parent_id, include_completed=False)
 $ gtasks lists
 MDEyMzQ1Njc4OTAxMjM0NTY3ODkw	My Tasks
 MTU3Mzc4NTY3ODkwMTIzNDU2Nw	Work
+
+# Exact, case-sensitive title lookup
+$ gtasks lists --title "Work"
+MTU3Mzc4NTY3ODkwMTIzNDU2Nw	Work
+
+# Create a list (prints the new id)
+$ gtasks list-create "Work"
+MTU3Mzc4NTY3ODkwMTIzNDU2NzA
+
+# Rename a list (prints its id)
+$ gtasks list-update MTU3Mzc4NTY3ODkwMTIzNDU2NzA "Work 2026"
+MTU3Mzc4NTY3ODkwMTIzNDU2NzA
+
+# Delete a list
+$ gtasks list-delete MTU3Mzc4NTY3ODkwMTIzNDU2NzA
+deleted MTU3Mzc4NTY3ODkwMTIzNDU2NzA
 
 $ gtasks lists --json
 [
@@ -247,6 +264,9 @@ $ gtasks lists --json
   }
 ]
 ```
+
+`lists --title` сравнивает заголовок точно и с учётом регистра. `list-create`
+и `list-update` также поддерживают `--json`.
 
 ### Задачи
 
@@ -316,6 +336,14 @@ MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 # Mark complete / incomplete
 $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --status completed
 
+# Mark complete with an explicit completion time (implies --status completed)
+$ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --completed 2025-01-02
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+# RFC 3339 completion times are normalized to UTC and preserved
+$ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --completed 2025-01-02T10:30:00+03:00
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
 $ gtasks delete @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 deleted MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
@@ -332,6 +360,12 @@ $ gtasks move @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
       --parent MTU3Mzc4NTY3ODkwMTIzNDU2NzQ --previous MTU3Mzc4NTY3ODkwMTIzNDU2NzU
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
+
+Параметры `--due` и `--completed` принимают значения `YYYY-MM-DD` или
+RFC 3339; дата без времени нормализуется к полуночи UTC. `--completed`
+подразумевает `--status completed` и сохраняет переданное время завершения;
+указание его вместе с `--status`, отличным от `completed`, является ошибкой
+(`--completed requires --status completed`).
 
 ### Подзадачи
 
@@ -436,6 +470,12 @@ for change in report.changes:
   один только статус оставил бы устаревшую метку завершения.
 - При завершении задачи в клиентах Google она может помечаться как скрытая; при
   полной синхронизации запрашиваются и скрытые задачи, чтобы избежать дубликатов.
+- В Google Tasks нет состояния *cancelled*: чтобы обозначить отмену, удалите
+  задачу или закодируйте её в `notes`/`title` (соглашение на стороне
+  вызывающего кода).
+- Массового (bulk) эндпоинта нет: каждая операция с задачей или списком — это
+  один HTTP-запрос, а синхронизация работает только на получение (pull), без
+  push, upsert и разрешения конфликтов.
 
 ## Безопасность
 

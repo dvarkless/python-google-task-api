@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -29,10 +30,20 @@ def parse_rfc3339(value: str | None) -> datetime | None:
 
 
 def to_rfc3339(value: datetime | date | str) -> str:
-    """Render a datetime, date or timestamp string as an RFC 3339 UTC string."""
+    """Render a datetime, date or timestamp string as an RFC 3339 UTC string.
+
+    Date-only strings become midnight UTC; other non-empty strings pass through.
+    """
     if isinstance(value, str):
-        if not value:
+        text = value.strip()
+        if not text:
             raise ValueError("RFC 3339 value must not be empty")
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text):
+            try:
+                parsed_date = date.fromisoformat(text)
+            except ValueError:
+                return value
+            return f"{parsed_date.isoformat()}T00:00:00.000Z"
         return value
     if isinstance(value, datetime):
         moment = value if value.tzinfo is not None else value.replace(tzinfo=_UTC)
