@@ -62,6 +62,7 @@ class TasksResourceTests(unittest.TestCase):
         self.assertIs(params["showCompleted"], True)
         self.assertIs(params["showDeleted"], False)
         self.assertIs(params["showHidden"], True)
+        self.assertNotIn("showAssigned", params)
         self.assertEqual(
             as_datetime(params["updatedMin"]), datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
         )
@@ -74,6 +75,31 @@ class TasksResourceTests(unittest.TestCase):
         self.assertNotIn("showCompleted", transport.last.params)
         self.assertNotIn("showDeleted", transport.last.params)
         self.assertNotIn("showHidden", transport.last.params)
+
+    def test_list_show_assigned_default_omitted(self):
+        resource, transport = self.make([page([])])
+        resource.list("l1")
+        self.assertNotIn("showAssigned", transport.last.params)
+
+    def test_list_show_assigned_true_and_false(self):
+        resource, transport = self.make([page([]), page([])])
+        resource.list("l1", show_assigned=True)
+        self.assertIs(transport.calls[-1].params["showAssigned"], True)
+        resource.list("l1", show_assigned=False)
+        self.assertIs(transport.calls[-1].params["showAssigned"], False)
+
+    def test_iterate_passes_show_assigned_on_every_page(self):
+        resource, transport = self.make(
+            [
+                page([make_task("t1")], token="p2"),
+                page([make_task("t2")]),
+            ]
+        )
+        items = list(resource.iterate("l1", show_assigned=True))
+        self.assertEqual([item.id for item in items], ["t1", "t2"])
+        self.assertEqual(len(transport.calls), 2)
+        for call in transport.calls:
+            self.assertIs(call.params["showAssigned"], True)
 
     def test_list_pagination(self):
         resource, transport = self.make([page([], token="p2")])

@@ -65,6 +65,7 @@ class TasksResource:
         show_completed: bool | None = None,
         show_deleted: bool | None = None,
         show_hidden: bool | None = None,
+        show_assigned: bool | None = None,
         updated_min: datetime | str | None = None,
         due_min: datetime | str | None = None,
         due_max: datetime | str | None = None,
@@ -76,6 +77,7 @@ class TasksResource:
             ("showCompleted", show_completed),
             ("showDeleted", show_deleted),
             ("showHidden", show_hidden),
+            ("showAssigned", show_assigned),
         ):
             if flag is not None:
                 params[name] = flag
@@ -100,6 +102,7 @@ class TasksResource:
         show_completed: bool | None = None,
         show_deleted: bool | None = None,
         show_hidden: bool | None = None,
+        show_assigned: bool | None = None,
         updated_min: datetime | str | None = None,
         due_min: datetime | str | None = None,
         due_max: datetime | str | None = None,
@@ -114,6 +117,7 @@ class TasksResource:
                 show_completed=show_completed,
                 show_deleted=show_deleted,
                 show_hidden=show_hidden,
+                show_assigned=show_assigned,
                 updated_min=updated_min,
                 due_min=due_min,
                 due_max=due_max,

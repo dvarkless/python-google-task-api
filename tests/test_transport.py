@@ -54,7 +54,7 @@ class RequestBuildingTests(unittest.TestCase):
         self.assertEqual(request.method, "GET")
         self.assertEqual(request.headers.get("authorization"), "Bearer tok")
         self.assertEqual(request.headers.get("accept"), "application/json")
-        self.assertEqual(request.headers.get("user-agent"), "gtasks/0.2.0")
+        self.assertEqual(request.headers.get("user-agent"), "gtasks/0.3.0")
         self.assertNotIn("content-type", request.headers)
         self.assertEqual(request.timeout, 30.0)
 

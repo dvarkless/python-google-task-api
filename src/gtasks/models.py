@@ -58,6 +58,10 @@ def _optional_str(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
+def _optional_mapping(value: Any) -> dict[str, Any] | None:
+    return dict(value) if isinstance(value, Mapping) else None
+
+
 @dataclass(slots=True)
 class TaskList:
     """A Google Tasks task list."""
@@ -97,6 +101,7 @@ class Task:
     deleted: bool = False
     hidden: bool = False
     links: list[dict[str, Any]] = field(default_factory=list)
+    assignment_info: dict[str, Any] | None = None
     updated: str | None = None
     etag: str | None = None
     self_link: str | None = None
@@ -118,6 +123,7 @@ class Task:
             links=[dict(link) for link in links if isinstance(link, Mapping)]
             if isinstance(links, list)
             else [],
+            assignment_info=_optional_mapping(data.get("assignmentInfo")),
             updated=_optional_str(data.get("updated")),
             etag=_optional_str(data.get("etag")),
             self_link=_optional_str(data.get("selfLink")),

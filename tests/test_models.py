@@ -1,6 +1,7 @@
 """Tests for gtasks.models: models round-trip and RFC 3339 conversion."""
 
 import unittest
+from dataclasses import fields
 from datetime import date, datetime, timedelta, timezone
 
 from gtasks.models import Task, TaskList, parse_rfc3339, to_rfc3339
@@ -205,6 +206,40 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(task.completed_datetime, datetime(2024, 1, 3, 4, 5, 6, tzinfo=UTC))
         self.assertIsNone(Task(id="b").due_datetime)
         self.assertIsNone(Task(id="b").completed_datetime)
+
+
+    def test_assignment_info_field_follows_links(self):
+        field_names = [field.name for field in fields(Task)]
+        self.assertLess(field_names.index("links"), field_names.index("assignment_info"))
+        self.assertIsNone(Task(id="t1").assignment_info)
+
+    def test_from_api_parses_assignment_info(self):
+        assignment = {
+            "type": "assignment",
+            "assignee": {"id": "user-1", "email": "a@example.com"},
+            "unknown": {"nested": [1, 2, 3]},
+        }
+        task = Task.from_api({"id": "t1", "assignmentInfo": assignment})
+        self.assertEqual(task.assignment_info, assignment)
+        self.assertEqual(task.assignment_info["assignee"]["email"], "a@example.com")
+        self.assertEqual(task.assignment_info["unknown"], {"nested": [1, 2, 3]})
+        self.assertIsNot(task.assignment_info, assignment)
+
+    def test_from_api_assignment_info_absent_is_none(self):
+        self.assertIsNone(Task.from_api({"id": "t1"}).assignment_info)
+        self.assertIsNone(Task.from_api({"id": "t1", "assignmentInfo": None}).assignment_info)
+
+    def test_from_api_assignment_info_non_dict_is_none(self):
+        for value in ("assignment", ["assignment"], 3, True):
+            with self.subTest(value=value):
+                task = Task.from_api({"id": "t1", "assignmentInfo": value})
+                self.assertIsNone(task.assignment_info)
+
+    def test_to_api_excludes_assignment_info(self):
+        task = Task(id="t1", title="T", assignment_info={"type": "assignment"})
+        payload = task.to_api()
+        self.assertNotIn("assignment_info", payload)
+        self.assertNotIn("assignmentInfo", payload)
 
 
 if __name__ == "__main__":

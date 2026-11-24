@@ -208,6 +208,17 @@ class TasksCommandTests(TempDirMixin):
         invoke(["tasks", "L1", "--completed"], client)
         self.assertIs(find_kwargs(client, "tasks.iterate")["show_completed"], True)
 
+    def test_show_assigned_flag_passed_true(self):
+        client = self.client()
+        code, _, _ = invoke(["tasks", "L1", "--show-assigned"], client)
+        self.assertEqual(code, 0)
+        self.assertIs(find_kwargs(client, "tasks.iterate")["show_assigned"], True)
+
+    def test_show_assigned_defaults_false(self):
+        client = self.client()
+        invoke(["tasks", "L1"], client)
+        self.assertIs(find_kwargs(client, "tasks.iterate")["show_assigned"], False)
+
     def test_text_filter(self):
         client = FakeClient(tasks=[Task("t1", "Buy Milk"), Task("t2", "Bread")])
         code, out, _ = invoke(["tasks", "L1", "--text", "milk"], client)
@@ -356,6 +367,33 @@ class UpdateCommandTests(TempDirMixin):
         invoke(["update", "L1", "t1", "--status", "completed"], client)
         self.assertEqual(find_kwargs(client, "tasks.update")["status"], "completed")
 
+    def test_update_status_needs_action_clears_completed(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, _, err = invoke(["update", "L1", "t1", "--status", "needsAction"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(
+            find_kwargs(client, "tasks.update"),
+            {"status": "needsAction", "completed": None},
+        )
+
+    def test_update_needs_action_body_clears_completed(self):
+        transport = FakeTransport([{"id": "t1"}])
+        client = GoogleTasksClient(transport)
+        code, out, err = invoke(["update", "L1", "t1", "--status", "needsAction"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(out.strip(), "t1")
+        self.assertEqual(
+            transport.last.body, {"status": "needsAction", "completed": None}
+        )
+
+    def test_update_status_completed_only_sends_status(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, _, _ = invoke(["update", "L1", "t1", "--status", "completed"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(find_kwargs(client, "tasks.update"), {"status": "completed"})
+
     def test_update_completed_date_only_implies_completed_status(self):
         client = FakeClient(tasks=[Task("t1", "First")])
         code, out, err = invoke(
@@ -444,6 +482,54 @@ class SimpleCommandTests(TempDirMixin):
         code, out, _ = invoke(["clear", "L1"], client)
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "cleared L1")
+
+    def test_complete_prints_id(self):
+        client = FakeClient(tasks=[Task("t1", "First", status="completed")])
+        code, out, err = invoke(["complete", "L1", "t1"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "t1")
+        self.assertEqual(err, "")
+        _, args, kwargs = last_call(client, "tasks.complete")
+        self.assertEqual(args, ("L1", "t1"))
+        self.assertFalse(kwargs)
+
+    def test_complete_json(self):
+        client = FakeClient(tasks=[Task("t1", "First", status="completed")])
+        code, out, _ = invoke(["complete", "L1", "t1", "--json"], client)
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["id"], "t1")
+        self.assertEqual(payload["status"], "completed")
+
+    def test_uncomplete_prints_id(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, out, err = invoke(["uncomplete", "L1", "t1"], client)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "t1")
+        self.assertEqual(err, "")
+        _, args, kwargs = last_call(client, "tasks.uncomplete")
+        self.assertEqual(args, ("L1", "t1"))
+        self.assertFalse(kwargs)
+
+    def test_uncomplete_json(self):
+        client = FakeClient(tasks=[Task("t1", "First")])
+        code, out, _ = invoke(["uncomplete", "L1", "t1", "--json"], client)
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["id"], "t1")
+        self.assertEqual(payload["status"], "needsAction")
+
+    def test_complete_error_exits_one(self):
+        client = FakeClient()
+
+        def boom(tasklist, task):
+            raise ApiError(404, "No such task")
+
+        client.tasks.complete = boom
+        code, out, err = invoke(["complete", "L1", "missing"], client)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("error: HTTP 404: No such task", err)
 
     def test_move(self):
         client = FakeClient(tasks=[Task("t1", "First")])
@@ -679,6 +765,17 @@ class ExitCodeTests(TempDirMixin):
         self.assertEqual(code, 0)
         for command in ("list-create", "list-update", "list-delete"):
             self.assertIn(command, out)
+
+    def test_help_lists_complete_and_uncomplete(self):
+        code, out, _ = invoke(["--help"], FakeClient())
+        self.assertEqual(code, 0)
+        self.assertIn("uncomplete", out)
+        self.assertRegex(out, r"\bcomplete\b")
+
+    def test_tasks_help_includes_show_assigned(self):
+        code, out, _ = invoke(["tasks", "--help"], FakeClient())
+        self.assertEqual(code, 0)
+        self.assertIn("--show-assigned", out)
 
     def test_lists_help_includes_title(self):
         code, out, _ = invoke(["lists", "--help"], FakeClient())

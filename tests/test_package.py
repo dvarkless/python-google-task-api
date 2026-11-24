@@ -17,7 +17,7 @@ SRC = ROOT / "src" / "gtasks"
 
 class PackageSurfaceTests(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(gtasks.__version__, "0.2.0")
+        self.assertEqual(gtasks.__version__, "0.3.0")
 
     def test_core_public_exports(self):
         expected = [
@@ -109,7 +109,7 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_project_metadata(self):
         self.assertEqual(self.project["name"], "gtasks")
-        self.assertEqual(self.project["version"], "0.2.0")
+        self.assertEqual(self.project["version"], "0.3.0")
         self.assertEqual(self.project["requires-python"], ">=3.10")
         self.assertFalse(self.project.get("dependencies"))
 

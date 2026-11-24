@@ -89,6 +89,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=True,
         dest="show_completed",
     )
+    tasks.add_argument(
+        "--show-assigned",
+        action="store_true",
+        dest="show_assigned",
+        help="include tasks assigned to you from shared spaces",
+    )
     _add_json_option(tasks)
     _add_filter_options(tasks)
     tasks.set_defaults(handler=_cmd_tasks)
@@ -130,6 +136,18 @@ def _build_parser() -> argparse.ArgumentParser:
     delete.add_argument("tasklist", metavar="TASKLIST")
     delete.add_argument("task", metavar="TASK")
     delete.set_defaults(handler=_cmd_delete)
+
+    complete = commands.add_parser("complete", help="mark a task completed")
+    complete.add_argument("tasklist", metavar="TASKLIST")
+    complete.add_argument("task", metavar="TASK")
+    _add_json_option(complete)
+    complete.set_defaults(handler=_cmd_complete)
+
+    uncomplete = commands.add_parser("uncomplete", help="mark a task incomplete")
+    uncomplete.add_argument("tasklist", metavar="TASKLIST")
+    uncomplete.add_argument("task", metavar="TASK")
+    _add_json_option(uncomplete)
+    uncomplete.set_defaults(handler=_cmd_uncomplete)
 
     clear = commands.add_parser("clear", help="clear completed tasks")
     clear.add_argument("tasklist", metavar="TASKLIST")
@@ -294,7 +312,10 @@ def _cmd_list_delete(args: argparse.Namespace, client: GoogleTasksClient) -> int
 def _cmd_tasks(args: argparse.Namespace, client: GoogleTasksClient) -> int:
     tasks = list(
         client.tasks.iterate(
-            args.tasklist, filter=_build_filter(args), show_completed=args.show_completed
+            args.tasklist,
+            filter=_build_filter(args),
+            show_completed=args.show_completed,
+            show_assigned=args.show_assigned,
         )
     )
     if not args.show_completed:
@@ -358,7 +379,27 @@ def _cmd_update(args: argparse.Namespace, client: GoogleTasksClient) -> int:
             raise GtasksError("--completed requires --status completed")
         changes["completed"] = _completion_timestamp(args.completed)
         changes["status"] = "completed"
+    elif args.status == "needsAction":
+        changes["completed"] = None
     task = client.tasks.update(args.tasklist, args.task, **changes)
+    if args.as_json:
+        _print_json(asdict(task))
+    else:
+        print(task.id)
+    return 0
+
+
+def _cmd_complete(args: argparse.Namespace, client: GoogleTasksClient) -> int:
+    task = client.tasks.complete(args.tasklist, args.task)
+    if args.as_json:
+        _print_json(asdict(task))
+    else:
+        print(task.id)
+    return 0
+
+
+def _cmd_uncomplete(args: argparse.Namespace, client: GoogleTasksClient) -> int:
+    task = client.tasks.uncomplete(args.tasklist, args.task)
     if args.as_json:
         _print_json(asdict(task))
     else:

@@ -192,7 +192,7 @@ class SyncEngine:
             fetched = _fetch_pages(
                 self._transport,
                 _tasks_path(list_id),
-                {"showDeleted": bool(full), "showHidden": True},
+                {"showDeleted": bool(full), "showHidden": True, "showAssigned": True},
             )
             fetched_by_id: dict[str, dict[str, Any]] = {}
             for raw in fetched:
@@ -258,7 +258,12 @@ class SyncEngine:
             fetched = _fetch_pages(
                 self._transport,
                 _tasks_path(list_id),
-                {"showDeleted": True, "showHidden": True, "updatedMin": updated_min},
+                {
+                    "showDeleted": True,
+                    "showHidden": True,
+                    "showAssigned": True,
+                    "updatedMin": updated_min,
+                },
             )
             previous = state.tasks.setdefault(list_id, {})
             for raw in fetched:

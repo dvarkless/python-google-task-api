@@ -14,6 +14,8 @@ snapshot. It has **zero runtime dependencies** and supports **Python 3.10+**.
 - **Task lists** — list, get, create, rename, delete.
 - **Tasks** — list (with lazy pagination), get, create, update, delete, clear,
   move/reorder, complete, uncomplete.
+- **Assigned tasks** — `tasks --show-assigned` / `show_assigned=True` expose
+  tasks assigned to you from shared spaces, with `Task.assignment_info`.
 - **Subtasks** — list the children of a task, create a subtask, move tasks
   between levels.
 - **Client-side filtering** — by text, status, due/completed dates, parent and
@@ -147,6 +149,10 @@ created = client.tasks.create(
 )
 
 page = client.tasks.list(work.id)                    # TaskPage(items=[...])
+assigned = client.tasks.list(work.id, show_assigned=True)  # include assigned tasks
+for item in assigned.items:
+    if item.assignment_info is not None:
+        print(item.id, item.assignment_info)
 task = client.tasks.get(work.id, created.id)
 
 client.tasks.update(work.id, created.id, title="Write v0.1.0 release notes")
@@ -219,8 +225,8 @@ Filter semantics:
 Run `gtasks <command> --help` for the full option list. Global `--client-secret`
 and `--token` options must appear **before** the subcommand (the `login`
 subcommand also accepts them itself). `--json` is available on `lists`,
-`list-create`, `list-update`, `tasks`, `show`, `create`, `update`, `move`,
-`subtasks` and `sync`.
+`list-create`, `list-update`, `tasks`, `show`, `create`, `update`, `complete`,
+`uncomplete`, `move`, `subtasks` and `sync`.
 
 ### Lists
 
@@ -280,10 +286,15 @@ $ gtasks tasks @default --top-level
 # Only direct children of a task
 $ gtasks tasks @default --parent MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
+# Include tasks assigned to you from shared spaces (hidden by default)
+$ gtasks tasks @default --show-assigned
+
 $ gtasks tasks @default --json
 ```
 
-Human task lines are `id<TAB>status<TAB>due-or-dash<TAB>title`.
+Human task lines are `id<TAB>status<TAB>due-or-dash<TAB>title`. Assigned tasks are
+hidden by default (API default); `--show-assigned` includes them, and the `--json`
+output exposes `assignment_info` for those tasks.
 
 ### Show
 
@@ -300,12 +311,14 @@ position: 00000000000000000000
 deleted: False
 hidden: False
 links: []
+assignment_info: None
 updated: 2026-11-15T18:31:03.000Z
 etag: "..."
 self_link: https://www.googleapis.com/tasks/v1/lists/@default/tasks/MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
 
-`gtasks show ... --json` prints the same object as JSON.
+`gtasks show ... --json` prints the same object as JSON; assignment details, when
+present, appear as `assignment_info`.
 
 ### Create / update / delete / clear / move
 
@@ -324,8 +337,19 @@ $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
       --title "Write v0.1.0 release notes" --clear-due
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
-# Mark complete / incomplete
+# Preferred explicit commands (print the task id)
+$ gtasks complete @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+$ gtasks uncomplete @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+# update --status works too; needsAction also clears the stale completed time
 $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --status completed
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+$ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --status needsAction
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
 # Mark complete with an explicit completion time (implies --status completed)
 $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --completed 2025-01-02
@@ -351,6 +375,11 @@ $ gtasks move @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
       --parent MTU3Mzc4NTY3ODkwMTIzNDU2NzQ --previous MTU3Mzc4NTY3ODkwMTIzNDU2NzU
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
+
+`complete` and `uncomplete` are the preferred explicit commands: `complete` sets
+`status="completed"` (the server stamps the completion time), while `uncomplete`
+sets `needsAction` and clears `completed`. `gtasks update --status needsAction`
+also clears `completed`; `--status completed` alone sends only the status.
 
 Both `--due` and `--completed` accept `YYYY-MM-DD` or RFC 3339 timestamps;
 date-only values become midnight UTC. `--completed` implies `--status completed`
@@ -387,7 +416,9 @@ $ gtasks sync --json
 ## Sync behavior and limitations
 
 `SyncEngine.pull(state)` performs a **one-way pull** from Google Tasks into a
-local JSON state file. It never writes to Google Tasks.
+local JSON state file. It never writes to Google Tasks. Every pull requests
+`showAssigned=true`, so tasks assigned to you from shared spaces are included in
+the state.
 
 ```python
 from gtasks import SyncEngine, SyncState
@@ -407,13 +438,14 @@ How it works:
   a list missing remotely is reported as deleted (there is no delta API for task
   lists).
 - The **first pull** fetches all tasks per list and reports them as `created`.
-  It requests `showHidden=true` so cleared/hidden tasks are not later reported as
-  false creates.
-- **Incremental pulls** request `showDeleted=true`, `showHidden=true` and
-  `updatedMin=<last synced_at>`; tombstones become `deleted` changes, changed
-  raw task dicts become `updated`, and unseen ids become `created`.
+  It requests `showHidden=true` and `showAssigned=true` so cleared/hidden and
+  assigned tasks are not later reported as false creates.
+- **Incremental pulls** request `showDeleted=true`, `showHidden=true`,
+  `showAssigned=true` and `updatedMin=<last synced_at>`; tombstones become
+  `deleted` changes, changed raw task dicts become `updated`, and unseen ids
+  become `created`.
 - A **full pull** (`sync --full`) additionally requests `showDeleted=true`,
-  includes hidden tasks, and diffs missing task ids as deletions.
+  includes hidden and assigned tasks, and diffs missing task ids as deletions.
 - Changes are ordered deterministically: task-list changes by id, then task
   changes by `(tasklist_id, id)`.
 - The state file is written atomically with `0600` permissions.

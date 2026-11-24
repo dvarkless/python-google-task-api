@@ -17,6 +17,9 @@
 - **Задачи** — список (с ленивой пагинацией), получение, создание, обновление,
   удаление, очистка, перемещение/изменение порядка, завершение и отмена
   завершения.
+- **Назначенные задачи** — `tasks --show-assigned` / `show_assigned=True`
+  показывают задачи, назначенные вам в общих пространствах, вместе с полем
+  `Task.assignment_info`.
 - **Подзадачи** — список дочерних задач, создание подзадачи, перемещение задач
   между уровнями.
 - **Клиентская фильтрация** — по тексту, статусу, датам выполнения/завершения,
@@ -153,6 +156,10 @@ created = client.tasks.create(
 )
 
 page = client.tasks.list(work.id)                    # TaskPage(items=[...])
+assigned = client.tasks.list(work.id, show_assigned=True)  # include assigned tasks
+for item in assigned.items:
+    if item.assignment_info is not None:
+        print(item.id, item.assignment_info)
 task = client.tasks.get(work.id, created.id)
 
 client.tasks.update(work.id, created.id, title="Write v0.1.0 release notes")
@@ -227,8 +234,8 @@ children = client.tasks.subtasks("@default", parent_id, include_completed=False)
 Полный список параметров: `gtasks <command> --help`. Глобальные параметры
 `--client-secret` и `--token` должны указываться **до** подкоманды (подкоманда
 `login` также принимает их после себя). Параметр `--json` доступен для `lists`,
-`list-create`, `list-update`, `tasks`, `show`, `create`, `update`, `move`,
-`subtasks` и `sync`.
+`list-create`, `list-update`, `tasks`, `show`, `create`, `update`, `complete`,
+`uncomplete`, `move`, `subtasks` и `sync`.
 
 ### Списки
 
@@ -288,11 +295,16 @@ $ gtasks tasks @default --top-level
 # Only direct children of a task
 $ gtasks tasks @default --parent MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
+# Include tasks assigned to you from shared spaces (hidden by default)
+$ gtasks tasks @default --show-assigned
+
 $ gtasks tasks @default --json
 ```
 
 Строки задач в человекочитаемом выводе имеют вид
-`id<TAB>status<TAB>due-or-dash<TAB>title`.
+`id<TAB>status<TAB>due-or-dash<TAB>title`. Назначенные задачи по умолчанию скрыты
+(так работает API); `--show-assigned` включает их, а вывод `--json` содержит поле
+`assignment_info` для таких задач.
 
 ### Просмотр
 
@@ -309,12 +321,14 @@ position: 00000000000000000000
 deleted: False
 hidden: False
 links: []
+assignment_info: None
 updated: 2026-11-15T18:31:03.000Z
 etag: "..."
 self_link: https://www.googleapis.com/tasks/v1/lists/@default/tasks/MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
 
-`gtasks show ... --json` выводит тот же объект в формате JSON.
+`gtasks show ... --json` выводит тот же объект в формате JSON; сведения о
+назначении, если они есть, доступны в поле `assignment_info`.
 
 ### Создание / обновление / удаление / очистка / перемещение
 
@@ -333,8 +347,19 @@ $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
       --title "Write v0.1.0 release notes" --clear-due
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
-# Mark complete / incomplete
+# Preferred explicit commands (print the task id)
+$ gtasks complete @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+$ gtasks uncomplete @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+# update --status works too; needsAction also clears the stale completed time
 $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --status completed
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
+
+$ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --status needsAction
+MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 
 # Mark complete with an explicit completion time (implies --status completed)
 $ gtasks update @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE --completed 2025-01-02
@@ -360,6 +385,12 @@ $ gtasks move @default MTU3Mzc4NTY3ODkwMTIzNDU2NzE \
       --parent MTU3Mzc4NTY3ODkwMTIzNDU2NzQ --previous MTU3Mzc4NTY3ODkwMTIzNDU2NzU
 MTU3Mzc4NTY3ODkwMTIzNDU2NzE
 ```
+
+`complete` и `uncomplete` — предпочтительные явные команды: `complete`
+устанавливает `status="completed"` (время завершения проставляет сервер), а
+`uncomplete` устанавливает `needsAction` и очищает `completed`. `gtasks update
+--status needsAction` также очищает `completed`; `--status completed` сам по себе
+передаёт только статус.
 
 Параметры `--due` и `--completed` принимают значения `YYYY-MM-DD` или
 RFC 3339; дата без времени нормализуется к полуночи UTC. `--completed`
@@ -398,7 +429,8 @@ $ gtasks sync --json
 
 `SyncEngine.pull(state)` выполняет **одностороннюю синхронизацию (pull)** из
 Google Tasks в локальный JSON-файл состояния. Она никогда не записывает данные
-в Google Tasks.
+в Google Tasks. Каждая синхронизация запрашивает `showAssigned=true`, поэтому
+задачи, назначенные вам в общих пространствах, включаются в состояние.
 
 ```python
 from gtasks import SyncEngine, SyncState
@@ -418,15 +450,16 @@ for change in report.changes:
   снимком; отсутствующий на сервере список помечается как удалённый (для списков
   задач нет API дельта-изменений).
 - **Первая синхронизация** загружает все задачи каждого списка и помечает их как
-  `created`. Она запрашивает `showHidden=true`, чтобы скрытые/очищенные задачи не
-  помечались позже как ложные `created`.
+  `created`. Она запрашивает `showHidden=true` и `showAssigned=true`, чтобы
+  скрытые/очищенные и назначенные задачи не помечались позже как ложные
+  `created`.
 - **Инкрементальные синхронизации** запрашивают `showDeleted=true`,
-  `showHidden=true` и `updatedMin=<last synced_at>`; маркеры удаления
-  превращаются в изменения `deleted`, изменившиеся сырые словари задач — в
-  `updated`, а новые идентификаторы — в `created`.
+  `showHidden=true`, `showAssigned=true` и `updatedMin=<last synced_at>`; маркеры
+  удаления превращаются в изменения `deleted`, изменившиеся сырые словари
+  задач — в `updated`, а новые идентификаторы — в `created`.
 - **Полная синхронизация** (`sync --full`) дополнительно запрашивает
-  `showDeleted=true`, включает скрытые задачи и помечает отсутствующие
-  идентификаторы задач как удаления.
+  `showDeleted=true`, включает скрытые и назначенные задачи и помечает
+  отсутствующие идентификаторы задач как удаления.
 - Изменения упорядочены детерминированно: изменения списков задач — по `id`,
   затем изменения задач — по `(tasklist_id, id)`.
 - Файл состояния записывается атомарно с правами `0600`.

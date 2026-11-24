@@ -128,6 +128,7 @@ class SyncEngineTests(unittest.TestCase):
         self.assertEqual(len(tasks_calls), 1)
         self.assertIs(tasks_calls[0].params.get("showDeleted"), False)
         self.assertIs(tasks_calls[0].params.get("showHidden"), True)
+        self.assertIs(tasks_calls[0].params.get("showAssigned"), True)
         self.assertNotIn("updatedMin", tasks_calls[0].params)
 
         self.assertEqual(state.tasklists["L1"]["title"], "List one")
@@ -149,6 +150,7 @@ class SyncEngineTests(unittest.TestCase):
         tasks_calls = calls_for(transport, "/lists/L1/tasks")
         self.assertIs(tasks_calls[0].params.get("showDeleted"), True)
         self.assertIs(tasks_calls[0].params.get("showHidden"), True)
+        self.assertIs(tasks_calls[0].params.get("showAssigned"), True)
         self.assertEqual(report.counts()["created"], 3)
 
     def test_full_pull_diffs_missing_tasks(self):
@@ -175,6 +177,7 @@ class SyncEngineTests(unittest.TestCase):
         tasks_calls = calls_for(transport, "/lists/L1/tasks")
         self.assertIs(tasks_calls[0].params.get("showDeleted"), True)
         self.assertIs(tasks_calls[0].params.get("showHidden"), True)
+        self.assertIs(tasks_calls[0].params.get("showAssigned"), True)
         self.assertNotIn("updatedMin", tasks_calls[0].params)
 
         actions = {(change.id, change.action) for change in report.changes}
@@ -218,6 +221,7 @@ class SyncEngineTests(unittest.TestCase):
         self.assertEqual(len(tasks_calls), 1)
         self.assertIs(tasks_calls[0].params.get("showDeleted"), True)
         self.assertIs(tasks_calls[0].params.get("showHidden"), True)
+        self.assertIs(tasks_calls[0].params.get("showAssigned"), True)
         self.assertEqual(tasks_calls[0].params.get("updatedMin"), OLD_SYNCED_AT)
 
         self.assertEqual(
